@@ -1,12 +1,45 @@
-
 const express = require("express");
+const fs = require("fs");
+const path = require("path");
 const app = express();
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// מסלול הקובץ שבו נשמור את המיקום
+const LOCATION_FILE = path.join(__dirname, "lastLocation.json");
+
 // מחזיקים רק מיקום אחרון בזיכרון
 let lastLocation = null;
+
+/**
+ * טוען את המיקום מהקובץ אם הוא קיים
+ */
+function loadLocationFromFile() {
+  if (fs.existsSync(LOCATION_FILE)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(LOCATION_FILE, "utf8"));
+      lastLocation = data;
+      console.log("📂 Loaded last location from file:", lastLocation);
+    } catch (e) {
+      console.error("⚠ Failed to read location file:", e);
+    }
+  } else {
+    console.log("ℹ No saved location file found.");
+  }
+}
+
+/**
+ * שומר את lastLocation לקובץ
+ */
+function saveLocationToFile() {
+  try {
+    fs.writeFileSync(LOCATION_FILE, JSON.stringify(lastLocation, null, 2));
+    console.log("💾 Location saved to file.");
+  } catch (e) {
+    console.error("⚠ Failed to save location:", e);
+  }
+}
 
 // OwnTracks שולח לכאן
 app.post("/", (req, res) => {
@@ -23,6 +56,9 @@ app.post("/", (req, res) => {
       batt: req.body.batt,
       raw: req.body
     };
+
+    // 🔥 שומר לקובץ
+    saveLocationToFile();
   }
 
   // תשובה תקינה עבור OwnTracks — חובה כדי שלא תהיה שגיאה
@@ -44,6 +80,9 @@ app.get("/last", (req, res) => {
 app.get("/", (req, res) => {
   res.send("OwnTracks last-location server is running!");
 });
+
+// --- טעינת המיקום מהקובץ בעת מופע השרת ---
+loadLocationFromFile();
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
