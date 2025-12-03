@@ -1,50 +1,77 @@
+const fs = require("fs");
 const express = require("express");
 const app = express();
 
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
-// מחזיקים רק מיקום אחרון בזיכרון
-let lastLocation = null;
+// Render persistent storage
+const DATA_FILE = "/var/data/location.json";
 
-// OwnTracks שולח לכאן
-app.post("/", (req, res) => {
-  console.log("📍 OwnTracks update received:");
-  console.log(JSON.stringify(req.body, null, 2));
+// Load location from disk
+function loadLocation() {
+  try {
+    if (!fs.existsSync(DATA_FILE)) return null;
+    const raw = fs.readFileSync(DATA_FILE, "utf8");
+    return JSON.parse(raw);
+  } catch (e) {
+    console.error("Error reading location file:", e);
+    return null;
+  }
+}
 
-  // שומרים רק הודעות מיקום
-  if (req.body._type === "location") {
-    lastLocation = {
-      lat: req.body.lat,
-      lon: req.body.lon,
-      acc: req.body.acc,
-      tst: req.body.tst,
-      batt: req.body.batt,
-      raw: req.body
+// Save location to disk
+function saveLocation(data) {
+  try {
+    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), "utf8");
+    console.log("Location saved:", data);
+  } catch (e) {
+    console.error("Error saving location file:", e);
+  }
+}
+
+// OwnTracks POST endpoint
+app.post("/pub", (req, res) => {
+  try {
+    const payload = req.body;
+
+    if (!payload || !payload.lat || !payload.lon) {
+      return res.status(400).json({ error: "Invalid payload" });
+    }
+
+    const location = {
+      lat: payload.lat,
+      lon: payload.lon,
+      tst: payload.tst || Math.floor(Date.now() / 1000)
     };
-  }
 
-  // תשובה תקינה עבור OwnTracks — חובה כדי שלא תהיה שגיאה
-  res.json({
-    "_type": "ack",
-    "status": "ok"
-  });
+    saveLocation(location);
+
+    res.json({ status: "ok" });
+
+  } catch (e) {
+    console.error("Error in /pub:", e);
+    res.status(500).json({ error: "Server error" });
+  }
 });
 
-// החזרת המיקום האחרון בלבד
+// GET last known location
 app.get("/last", (req, res) => {
-  if (!lastLocation) {
-    return res.json({ error: "No location received yet" });
-  }
-  res.json(lastLocation);
+  const loc = loadLocation();
+  if (!loc) return res.json({ error: "No location received yet" });
+  res.json(loc);
 });
 
-// בדיקת תקינות
-app.get("/", (req, res) => {
-  res.send("OwnTracks last-location server is running!");
+// Debug endpoint
+app.get("/status", (req, res) => {
+  const loc = loadLocation();
+  res.json({
+    hasLocation: !!loc,
+    lastLocation: loc || null,
+    serverTime: new Date().toISOString()
+  });
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log("🚀 Server running on port " + PORT);
+  console.log("Server running on port", PORT);
 });
