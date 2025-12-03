@@ -3,12 +3,13 @@ const express = require("express");
 const app = express();
 
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Render persistent storage
+// קובץ השמירה הקבועה (Render שומר אותו לנצח)
 const DATA_FILE = "/var/data/location.json";
 
-// Load location from disk
-function loadLocation() {
+// טעינת המיקום מהדיסק
+function loadLocationFromDisk() {
   try {
     if (!fs.existsSync(DATA_FILE)) return null;
     const raw = fs.readFileSync(DATA_FILE, "utf8");
@@ -19,59 +20,62 @@ function loadLocation() {
   }
 }
 
-// Save location to disk
-function saveLocation(data) {
+// שמירת המיקום לדיסק
+function saveLocationToDisk(data) {
   try {
     fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), "utf8");
-    console.log("Location saved:", data);
+    console.log("📦 Saved location to disk:", data);
   } catch (e) {
-    console.error("Error saving location file:", e);
+    console.error("Error saving location:", e);
   }
 }
 
-// OwnTracks POST endpoint
-app.post("/pub", (req, res) => {
-  try {
-    const payload = req.body;
+// -------------------------
+// המיקום האחרון בזיכרון
+// -------------------------
+let lastLocation = loadLocationFromDisk(); // נטען את מה שיש כבר
 
-    if (!payload || !payload.lat || !payload.lon) {
-      return res.status(400).json({ error: "Invalid payload" });
-    }
+// OwnTracks שולח לפה
+app.post("/", (req, res) => {
+  console.log("📍 OwnTracks update received:");
+  console.log(JSON.stringify(req.body, null, 2));
 
-    const location = {
-      lat: payload.lat,
-      lon: payload.lon,
-      tst: payload.tst || Math.floor(Date.now() / 1000)
+  // מקבלים רק הודעות מסוג LOCATION
+  if (req.body._type === "location") {
+    lastLocation = {
+      lat: req.body.lat,
+      lon: req.body.lon,
+      acc: req.body.acc,
+      tst: req.body.tst,
+      batt: req.body.batt,
+      raw: req.body
     };
 
-    saveLocation(location);
-
-    res.json({ status: "ok" });
-
-  } catch (e) {
-    console.error("Error in /pub:", e);
-    res.status(500).json({ error: "Server error" });
+    // שמירה לדיסק
+    saveLocationToDisk(lastLocation);
   }
-});
 
-// GET last known location
-app.get("/last", (req, res) => {
-  const loc = loadLocation();
-  if (!loc) return res.json({ error: "No location received yet" });
-  res.json(loc);
-});
-
-// Debug endpoint
-app.get("/status", (req, res) => {
-  const loc = loadLocation();
+  // מחזירים ACK כמו במקור
   res.json({
-    hasLocation: !!loc,
-    lastLocation: loc || null,
-    serverTime: new Date().toISOString()
+    "_type": "ack",
+    "status": "ok"
   });
+});
+
+// החזרת המיקום האחרון
+app.get("/last", (req, res) => {
+  if (!lastLocation) {
+    return res.json({ error: "No location received yet" });
+  }
+  res.json(lastLocation);
+});
+
+// בדיקת תקינות
+app.get("/", (req, res) => {
+  res.send("OwnTracks last-location server is running!");
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log("Server running on port", PORT);
+  console.log("🚀 Server running on port " + PORT);
 });
